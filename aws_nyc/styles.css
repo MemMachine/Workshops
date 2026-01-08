@@ -1,0 +1,60 @@
+/* Workshop Chatbot Styles */
+
+/* Header Styles */
+.header-wrapper {
+    margin-bottom: 1.5rem;
+}
+
+.header-wrapper h1 {
+    color: #1f2937;
+    margin-bottom: 0.5rem;
+}
+
+.header-subtitle {
+    color: #6b7280;
+    font-size: 1rem;
+    margin-top: 0;
+}
+
+/* Memory Status Indicator */
+.memory-status-indicator {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 1rem;
+    padding: 0.75rem 1.5rem;
+    background: #f0f2f6;
+    border-radius: 0.5rem;
+    border: 1px solid #e0e0e0;
+}
+
+.memory-status-indicator.active {
+    background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
+    border: 2px solid #667eea;
+}
+
+.memory-status-text {
+    font-size: 0.95rem;
+    color: #374151;
+    font-weight: 500;
+}
+
+.memory-status-indicator.active .memory-status-text {
+    color: #667eea;
+}
+
+/* Chat Message Styling */
+.stChatMessage {
+    padding: 1rem;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .header-wrapper h1 {
+        font-size: 1.5rem;
+    }
+    
+    .header-subtitle {
+        font-size: 0.9rem;
+    }
+}
+

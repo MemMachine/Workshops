@@ -1,0 +1,625 @@
+---
+title: "AWS NYC Workshop - Building Memory-Aware Chatbots"
+description: "Hands-on workshop guide for building production-ready memory-aware chatbots on AWS using Bedrock and MemMachine"
+icon: "aws"
+---
+
+# MemMachine Workshop @ AWS NYC
+
+**Building Production-Ready Memory-Aware Chatbots on AWS**
+
+This hands-on workshop will guide you through building a production-ready, memory-aware chatbot using:
+- **Amazon Bedrock** for hosted foundation models
+- **MemMachine**, an open-source memory layer for AI agents
+- **EC2 + CloudFormation** for deployment
+
+## Workshop Overview
+
+By the end of this workshop, you'll have:
+1. ✅ A MemMachine instance deployed on AWS EC2
+2. ✅ A chatbot powered by Amazon Bedrock
+3. ✅ Memory integration via MemMachine APIs
+4. ✅ A clear architectural pattern you can reuse
+
+## Prerequisites
+
+Before starting, ensure you have:
+
+### Required
+- **AWS Account** with appropriate permissions
+- **AWS CLI** installed and configured (`aws --version`)
+- **EC2 Key Pair** created in your AWS region
+- **AWS Access Credentials** (Access Key ID and Secret Access Key) with Bedrock permissions
+- **Bedrock Model Access** enabled for your AWS account
+
+### Optional but Helpful
+- Basic familiarity with Python
+- Understanding of LLM concepts
+- Terminal/command line experience
+
+### Quick Prerequisites Check
+
+```bash
+# Check AWS CLI
+aws --version
+
+# Check AWS credentials
+aws sts get-caller-identity
+
+# List your EC2 key pairs
+aws ec2 describe-key-pairs --region us-east-1
+
+# Verify Bedrock access (replace with your region)
+aws bedrock list-foundation-models --region us-east-1
+```
+
+---
+
+## Part 1: Deploy MemMachine on AWS
+
+### Step 1: Prepare CloudFormation Template
+
+1. **Download the CloudFormation template**:
+   - The template is located at: `bedrock-cft.yml` in the repository root
+   - Or copy from: [AWS CloudFormation Bedrock Guide](/docs/install_guide/cloud_deploy/aws_cloudformation_bedrock)
+
+2. **Review the template parameters**:
+   - `StackName`: Your stack name (e.g., `memmachine-workshop`)
+   - `InstanceType`: EC2 instance type (default: `t3.xlarge`)
+   - `KeyPairName`: Your EC2 key pair name
+   - `PostgresPassword`: PostgreSQL password (min 8 characters)
+   - `Neo4jPassword`: Neo4j password (min 8 characters)
+   - `AwsAccessKeyId`: Your AWS Access Key ID
+   - `AwsSecretAccessKey`: Your AWS Secret Access Key
+   - `AwsRegion`: AWS region (e.g., `us-east-1`, `us-west-2`)
+   - `BedrockEmbeddingModel`: Embedding model ID (default: `amazon.titan-embed-text-v2:0`)
+   - `BedrockLanguageModel`: Language model ID (default: `openai.gpt-oss-20b-1:0`)
+
+### Step 2: Deploy via AWS CLI
+
+**Option A: Using Environment Variables**
+
+```bash
+# Set your parameters
+export STACK_NAME="memmachine-workshop"
+export REGION="us-east-1"
+export KEY_PAIR="your-key-pair-name"
+export POSTGRES_PASSWORD="YourSecurePassword123!"
+export NEO4J_PASSWORD="YourSecurePassword123!"
+export AWS_ACCESS_KEY_ID="your-access-key-id"
+export AWS_SECRET_ACCESS_KEY="your-secret-access-key"
+export AWS_REGION="us-east-1"
+export BEDROCK_EMBEDDING_MODEL="amazon.titan-embed-text-v2:0"
+export BEDROCK_LANGUAGE_MODEL="openai.gpt-oss-20b-1:0"
+export INSTANCE_TYPE="t3.xlarge"
+export ALLOWED_CIDR="0.0.0.0/0"
+
+# Deploy the stack
+aws cloudformation create-stack \
+    --stack-name $STACK_NAME \
+    --template-body file://bedrock-cft.yml \
+    --parameters ParameterKey=StackName,ParameterValue=$STACK_NAME \
+                 ParameterKey=InstanceType,ParameterValue=$INSTANCE_TYPE \
+                 ParameterKey=KeyPairName,ParameterValue=$KEY_PAIR \
+                 ParameterKey=PostgresPassword,ParameterValue=$POSTGRES_PASSWORD \
+                 ParameterKey=Neo4jPassword,ParameterValue=$NEO4J_PASSWORD \
+                 ParameterKey=AwsAccessKeyId,ParameterValue=$AWS_ACCESS_KEY_ID \
+                 ParameterKey=AwsSecretAccessKey,ParameterValue=$AWS_SECRET_ACCESS_KEY \
+                 ParameterKey=AwsRegion,ParameterValue=$AWS_REGION \
+                 ParameterKey=BedrockEmbeddingModel,ParameterValue=$BEDROCK_EMBEDDING_MODEL \
+                 ParameterKey=BedrockLanguageModel,ParameterValue=$BEDROCK_LANGUAGE_MODEL \
+                 ParameterKey=AllowedCIDR,ParameterValue=$ALLOWED_CIDR \
+    --capabilities CAPABILITY_NAMED_IAM \
+    --region $REGION
+```
+
+**Option B: Using AWS Console**
+
+1. Go to **AWS Console → CloudFormation**
+2. Click **Create stack → With new resources (standard)**
+3. Choose **Upload a template file** and select `bedrock-cft.yml`
+4. Fill in all required parameters
+5. Acknowledge IAM resource creation
+6. Click **Submit**
+
+### Step 3: Monitor Deployment
+
+```bash
+# Check stack status
+aws cloudformation describe-stacks \
+    --stack-name $STACK_NAME \
+    --region $REGION \
+    --query 'Stacks[0].StackStatus' \
+    --output text
+
+# Wait for completion (this may take 5-10 minutes)
+aws cloudformation wait stack-create-complete \
+    --stack-name $STACK_NAME \
+    --region $REGION
+```
+
+### Step 4: Retrieve Outputs
+
+```bash
+# Get all stack outputs
+aws cloudformation describe-stacks \
+    --stack-name $STACK_NAME \
+    --region $REGION \
+    --query 'Stacks[0].Outputs' \
+    --output table
+
+# Save important values
+export MEMMACHINE_IP=$(aws cloudformation describe-stacks \
+    --stack-name $STACK_NAME \
+    --region $REGION \
+    --query 'Stacks[0].Outputs[?OutputKey==`PublicIP`].OutputValue' \
+    --output text)
+
+export MEMMACHINE_URL="http://${MEMMACHINE_IP}:8080"
+
+echo "MemMachine URL: $MEMMACHINE_URL"
+```
+
+### Step 5: Verify Deployment
+
+```bash
+# Test health endpoint
+curl http://${MEMMACHINE_IP}:8080/api/v2/health
+
+# Check API documentation
+echo "API Docs: http://${MEMMACHINE_IP}:8080/docs"
+```
+
+**Expected Response:**
+```json
+{
+  "status": "healthy",
+  "version": "2.x.x"
+}
+```
+
+---
+
+## Part 2: Build Chatbots - Before & After Comparison
+
+We'll build **two chatbots** to demonstrate the difference:
+1. **BEFORE**: Stateless chatbot without memory
+2. **AFTER**: Memory-aware chatbot with MemMachine
+
+### Step 1: Set Up Python Environment
+
+```bash
+# Navigate to the workshop directory
+cd workshop/aws_nyc
+
+# Create virtual environment (optional but recommended)
+python3 -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install dependencies
+pip install -r requirements.txt
+```
+
+**Note**: The chatbots now use Streamlit for a web-based interface, so you'll need `streamlit` installed (included in requirements.txt).
+
+### Step 2: Create "BEFORE" Chatbot (Without Memory)
+
+**Use the provided file**: `chatbot_before.py` (in this directory)
+
+This is a **stateless chatbot with a Streamlit web interface** - it has no memory. Each message is independent.
+
+### Step 3: Test the "BEFORE" Chatbot
+
+```bash
+# Run the before chatbot (Streamlit web interface)
+streamlit run chatbot_before.py
+```
+
+This will open a web interface in your browser at `http://localhost:8501`.
+
+**Try this:**
+1. Say: "My name is Alice"
+2. Ask: "What's my name?"
+3. Notice: It doesn't remember!
+
+**Key Observation**: Without memory, the chatbot treats each message independently. It cannot remember previous conversations.
+
+### Step 4: Create "AFTER" Chatbot (With Memory)
+
+**Use the provided file**: `chatbot_after.py` (in this directory)
+
+This chatbot includes a Streamlit web interface with:
+- Memory storage for all messages
+- Memory search to retrieve relevant context
+- Context-enhanced prompts
+- Persistent memory across sessions
+- **Model selection dropdown** - switch between different Bedrock models while retaining memory
+- **Memory context viewer** - toggle to see retrieved memory context
+- **Memory management** - button to delete all memories
+
+### Step 5: Create Environment File
+
+Create `.env`:
+
+```bash
+# MemMachine Configuration
+MEMORY_SERVER_URL=http://YOUR_EC2_IP:8080
+ORG_ID=workshop-org
+PROJECT_ID=workshop-project
+USER_ID=workshop-user
+
+# AWS Configuration
+AWS_REGION=us-east-1
+AWS_ACCESS_KEY_ID=your-access-key-id
+AWS_SECRET_ACCESS_KEY=your-secret-access-key
+
+# Bedrock Model
+BEDROCK_MODEL_ID=openai.gpt-oss-20b-1:0
+```
+
+**Update with your values:**
+- Replace `YOUR_EC2_IP` with the PublicIP from CloudFormation outputs
+- Add your AWS credentials
+
+### Step 6: Compare Both Chatbots
+
+**Test the "BEFORE" chatbot (no memory):**
+```bash
+streamlit run chatbot_before.py
+```
+
+This opens a web interface. Try:
+- You: "My name is Alice"
+- You: "What's my name?"
+- Result: It doesn't remember!
+
+**Test the "AFTER" chatbot (with memory):**
+```bash
+streamlit run chatbot_after.py
+```
+
+This opens a web interface with additional features:
+- **Model Selection**: Dropdown to switch between different Bedrock models
+- **Memory Context Viewer**: Toggle to see retrieved memory context
+- **Memory Management**: Button to delete all memories
+
+Try:
+- You: "My name is Alice"
+- You: "What's my name?"
+- Result: It remembers! ✨
+- **Bonus**: Switch models using the dropdown - memory persists across different models!
+
+**Key Difference:**
+- **BEFORE**: Stateless - each message is independent
+- **AFTER**: Stateful - remembers past conversations
+
+### Step 7: Test Memory Persistence
+
+1. **Run the "AFTER" chatbot:**
+   ```bash
+   streamlit run chatbot_after.py
+   ```
+   
+2. **Have a conversation in the web interface:**
+   - You: "My name is Alice"
+   - You: "I love Python programming"
+   - You: "I work as a data scientist"
+
+3. **Close the browser tab and restart the chatbot** (or refresh the page)
+
+4. **Ask about previous conversation:**
+   - You: "What's my name?"
+   - Assistant: [Should remember "Alice"]
+   
+   - You: "What do I do for work?"
+   - Assistant: [Should remember "data scientist"]
+
+**This demonstrates persistent memory across sessions!**
+
+**Advanced Test:**
+- Switch to a different Bedrock model using the dropdown
+- Ask the same questions
+- Notice: Memory context is retained even when using different models!
+
+---
+
+## Part 3: Understanding the Difference
+
+### Before vs After Comparison
+
+| Feature | BEFORE (No Memory) | AFTER (With Memory) |
+|---------|-------------------|-------------------|
+| **State** | Stateless | Stateful |
+| **Context** | None | Full conversation history |
+| **Personalization** | None | User-specific |
+| **Persistence** | None | Cross-session |
+| **Follow-ups** | Can't answer | Remembers context |
+
+### Example Conversation
+
+**BEFORE (No Memory):**
+```
+You: My name is Alice
+Assistant: Nice to meet you, Alice!
+
+You: What's my name?
+Assistant: I don't have that information. Could you tell me your name?
+```
+
+**AFTER (With Memory):**
+```
+You: My name is Alice
+Assistant: Nice to meet you, Alice!
+
+You: What's my name?
+Assistant: Your name is Alice! How can I help you today?
+```
+
+## Part 4: Understanding Memory Integration
+
+### Memory Flow
+
+```
+User Message
+    ↓
+1. Store in MemMachine (add_memory)
+    ↓
+2. Search for relevant memories (search_memories)
+    ↓
+3. Build context-enhanced prompt
+    ↓
+4. Call Bedrock LLM
+    ↓
+5. Store response in memory
+    ↓
+Return Response
+```
+
+### Memory Types
+
+**Episodic Memory:**
+- Stores conversation episodes (messages, interactions)
+- Short-term: Recent context (last N messages)
+- Long-term: Summarized past conversations
+
+**Semantic Memory:**
+- User-specific facts, preferences, knowledge
+- Extracted from conversations
+- Uses vector embeddings for semantic search
+
+### API Endpoints Used
+
+1. **POST `/api/v2/memories`** - Store messages
+2. **POST `/api/v2/memories/search`** - Search for relevant memories
+3. **GET `/api/v2/health`** - Health check
+
+---
+
+## Part 5: Advanced: Customizing the Web Interface
+
+The chatbots already include a Streamlit web interface! You can customize it further or build your own.
+
+### Option 1: Customize Existing Streamlit Interface
+
+The chatbots (`chatbot_before.py` and `chatbot_after.py`) already use Streamlit. You can:
+- Modify the UI components in the Python files
+- Add new features to the sidebar
+- Customize the CSS in `styles.css`
+- Add additional Streamlit widgets
+
+### Option 2: Build a Flask Web Interface (Alternative)
+
+If you prefer Flask over Streamlit, you can create a Flask app:
+
+Create `app.py`:
+
+```python
+from flask import Flask, render_template, request, jsonify
+from chatbot_after import chat_with_memory
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+app = Flask(__name__)
+
+@app.route('/')
+def index():
+    return render_template('chat.html')
+
+@app.route('/chat', methods=['POST'])
+def chat():
+    user_message = request.json.get('message', '')
+    response, _ = chat_with_memory(user_message)
+    return jsonify({'response': response})
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000, debug=True)
+```
+
+Create `templates/chat.html`:
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+    <title>MemMachine Chatbot</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 50px auto; }
+        #chat { border: 1px solid #ccc; height: 400px; overflow-y: scroll; padding: 10px; }
+        .message { margin: 10px 0; }
+        .user { color: blue; }
+        .assistant { color: green; }
+        input { width: 70%; padding: 10px; }
+        button { padding: 10px 20px; }
+    </style>
+</head>
+<body>
+    <h1>MemMachine Chatbot</h1>
+    <div id="chat"></div>
+    <input type="text" id="message" placeholder="Type your message...">
+    <button onclick="sendMessage()">Send</button>
+    
+    <script>
+        function sendMessage() {
+            const message = document.getElementById('message').value;
+            if (!message) return;
+            
+            // Add user message to chat
+            addMessage('user', message);
+            document.getElementById('message').value = '';
+            
+            // Send to backend
+            fetch('/chat', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({message: message})
+            })
+            .then(r => r.json())
+            .then(data => addMessage('assistant', data.response));
+        }
+        
+        function addMessage(role, text) {
+            const chat = document.getElementById('chat');
+            const div = document.createElement('div');
+            div.className = 'message ' + role;
+            div.textContent = (role === 'user' ? 'You: ' : 'Assistant: ') + text;
+            chat.appendChild(div);
+            chat.scrollTop = chat.scrollHeight;
+        }
+        
+        document.getElementById('message').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') sendMessage();
+        });
+    </script>
+</body>
+</html>
+```
+
+Run:
+```bash
+pip install flask
+python app.py
+```
+
+Visit: `http://localhost:5000`
+
+**Note**: The provided chatbots already include Streamlit web interfaces, so you don't need to build a Flask app unless you prefer it.
+
+---
+
+## Part 6: Testing & Verification
+
+### Test Memory Persistence
+
+1. **Start a conversation:**
+   ```
+   You: My name is Alice and I love Python programming
+   Assistant: [response]
+   ```
+
+2. **Start a new session** (restart the chatbot)
+
+3. **Ask about previous conversation:**
+   ```
+   You: What's my name and what do I love?
+   Assistant: [should remember Alice and Python]
+   ```
+
+### Verify Memory Storage
+
+```bash
+# Check memories via API
+curl -X POST http://YOUR_EC2_IP:8080/api/v2/memories/list \
+  -H "Content-Type: application/json" \
+  -d '{
+    "org_id": "workshop-org",
+    "project_id": "workshop-project",
+    "filter": "metadata.user_id='workshop-user'"
+  }'
+```
+
+### View Neo4j Graph
+
+1. Open Neo4j Browser: `http://YOUR_EC2_IP:7474`
+2. Login with: `neo4j` / `YOUR_NEO4J_PASSWORD`
+3. Run query: `MATCH (n) RETURN n LIMIT 100`
+
+---
+
+## Troubleshooting
+
+### Common Issues
+
+**1. Connection Refused**
+- Check security group allows port 8080
+- Verify MemMachine is running: `curl http://YOUR_IP:8080/api/v2/health`
+
+**2. Bedrock Access Denied**
+- Verify Bedrock model access in AWS Console
+- Check IAM permissions for Bedrock
+
+**3. Memory Not Working**
+- Verify `MEMORY_SERVER_URL` is correct
+- Check API responses for errors
+- Verify `ORG_ID` and `PROJECT_ID` match
+
+**4. Stack Creation Failed**
+- Check CloudFormation events for errors
+- Verify all parameters are correct
+- Check IAM permissions
+
+---
+
+## Next Steps
+
+### Production Considerations
+
+1. **Security:**
+   - Use IAM roles instead of access keys
+   - Restrict security group access
+   - Enable HTTPS/TLS
+
+2. **Scaling:**
+   - Use Application Load Balancer
+   - Auto-scaling groups
+   - RDS for PostgreSQL (instead of container)
+
+3. **Monitoring:**
+   - CloudWatch logs
+   - API Gateway metrics
+   - Custom dashboards
+
+### Additional Resources
+
+- [MemMachine Documentation](https://memmachine.ai/docs)
+- [AWS Bedrock Documentation](https://docs.aws.amazon.com/bedrock/)
+- [MemMachine GitHub](https://github.com/MemMachine/MemMachine)
+- [Example Chatbot Code](/examples/simple_chatbot)
+- [Workshop Materials](/workshop/aws_nyc)
+
+---
+
+## Workshop Summary
+
+You've successfully:
+- ✅ Deployed MemMachine on AWS EC2 using CloudFormation
+- ✅ Built a chatbot using AWS Bedrock
+- ✅ Integrated persistent memory via MemMachine APIs
+- ✅ Created a production-ready architecture pattern
+
+**Key Takeaways:**
+- Memory transforms stateless LLMs into stateful agents
+- MemMachine provides a simple API for memory management
+- AWS Bedrock simplifies model inference
+- CloudFormation enables reproducible deployments
+
+---
+
+## Questions & Support
+
+- **GitHub Issues**: [MemMachine Repository](https://github.com/MemMachine/MemMachine/issues)
+- **Discord**: [MemMachine Community](https://discord.gg/usydANvKqD)
+- **Documentation**: [MemMachine Docs](https://memmachine.ai/docs)
+
+**Happy Building! 🚀**
+
